@@ -14,14 +14,24 @@ import type {
 
 const uri = process.env.MONGODB_URI;
 
-if (!uri) {
-  throw new Error("MONGODB_URI is required — set your Atlas connection string in .env");
+/** Lazy client holder: importing this module must never throw at module load,
+ * otherwise a missing env var takes down every SSR route (500 on all pages).
+ * Callers get a rejected promise on first use instead. */
+function getClient(): MongoClient {
+  if (!uri) {
+    throw new Error("MONGODB_URI is required — set it as an environment variable in the Amplify console");
+  }
+  const globalForDb = globalThis as typeof globalThis & { __adcastMongoClient?: MongoClient };
+  return (globalForDb.__adcastMongoClient ??= new MongoClient(uri, { serverSelectionTimeoutMS: 10000 }));
 }
 
-const globalForDb = globalThis as typeof globalThis & { __adcastMongoClient?: MongoClient };
-
-export const client = globalForDb.__adcastMongoClient ?? new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
-globalForDb.__adcastMongoClient ??= client;
+export const client: MongoClient = new Proxy({} as MongoClient, {
+  get(_t, prop) {
+    const real = getClient();
+    const value = Reflect.get(real as object, prop, real);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
 
 function dbNameFromUri(uri: string): string {
   try {
@@ -32,19 +42,25 @@ function dbNameFromUri(uri: string): string {
   }
 }
 
-export const db: Db = client.db(dbNameFromUri(uri));
+export const db: Db = new Proxy({} as Db, {
+  get(_t, prop) {
+    const real = getClient().db(dbNameFromUri(uri!));
+    const value = Reflect.get(real as object, prop, real);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
 
 export const col = {
-  sponsors: db.collection<Sponsor>("sponsors"),
-  users: db.collection<User>("users"),
-  states: db.collection<State>("states"),
-  districts: db.collection<District>("districts"),
-  msos: db.collection<Mso>("msos"),
-  channels: db.collection<Channel>("channels"),
-  channelDistricts: db.collection<ChannelDistrict>("channel_districts"),
-  channelMsos: db.collection<ChannelMso>("channel_msos"),
-  campaigns: db.collection<Campaign>("campaigns"),
-  seedLocks: db.collection<SeedLock>("seed_locks"),
+  get sponsors() { return db.collection<Sponsor>("sponsors"); },
+  get users() { return db.collection<User>("users"); },
+  get states() { return db.collection<State>("states"); },
+  get districts() { return db.collection<District>("districts"); },
+  get msos() { return db.collection<Mso>("msos"); },
+  get channels() { return db.collection<Channel>("channels"); },
+  get channelDistricts() { return db.collection<ChannelDistrict>("channel_districts"); },
+  get channelMsos() { return db.collection<ChannelMso>("channel_msos"); },
+  get campaigns() { return db.collection<Campaign>("campaigns"); },
+  get seedLocks() { return db.collection<SeedLock>("seed_locks"); },
 };
 
 let indexes: Promise<void> | null = null;
