@@ -6,6 +6,9 @@ frontend:
         - npm ci
     build:
       commands:
+        # Amplify console env vars don't always reach the SSR compute runtime;
+        # writing them into .env.production guarantees Next.js loads them.
+        - printf 'MONGODB_URI=%s\nSESSION_SECRET=%s\n' "$MONGODB_URI" "$SESSION_SECRET" > .env.production
         - npm run build
   artifacts:
     baseDirectory: .next
